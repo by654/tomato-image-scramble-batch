@@ -1,0 +1,979 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>小番茄图片批量混淆</title>
+<style>
+:root{
+  --purple:#4f1787;
+  --pink:#eb3678;
+  --orange:#fb773c;
+  --blue:#3c8bfb;
+  --line:#eaeaea;
+}
+*{box-sizing:border-box}
+body{
+  margin:0;
+  min-height:100vh;
+  background:#fff;
+  color:#333;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+}
+.wrap{max-width:1240px;margin:0 auto;padding:0 16px 72px;}
+
+header{text-align:center;padding:28px 0 6px;}
+header h1{margin:0 0 10px;font-size:26px;font-weight:700;color:#222;letter-spacing:.5px;}
+header .sub{max-width:680px;margin:0 auto;font-size:13px;color:#9a9a9a;line-height:1.85;}
+
+/* ===== 拖放区 ===== */
+.drop-zone{
+  width:100%;
+  max-width:720px;
+  min-height:150px;
+  border:2px dashed #d5d5d5;
+  border-radius:16px;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:4px;
+  margin:20px auto 0;
+  padding:18px;
+  cursor:pointer;
+  transition:border-color .25s, background .25s, transform .2s;
+  background:#fafafa;
+  user-select:none;
+}
+.drop-zone:hover{border-color:var(--purple);background:#f8f4ff;}
+.drop-zone.dragover{border-color:var(--purple);background:#ede6ff;transform:scale(1.01);}
+.drop-zone svg{display:block;margin-bottom:6px;}
+.dz-title{font-size:15px;color:#666;}
+.dz-action{font-size:13px;color:#999;}
+.dz-action strong{color:var(--purple);}
+.dz-hint{font-size:12px;color:#bbb;margin-top:4px;}
+
+/* ===== 按钮 ===== */
+.toolbar{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin:22px 0 8px;}
+.btn{
+  min-width:118px;
+  height:40px;
+  padding:0 18px;
+  border:0;
+  border-radius:10px;
+  font-size:14px;
+  color:#fff;
+  cursor:pointer;
+  transition:transform .15s, box-shadow .15s, opacity .15s;
+  font-family:inherit;
+}
+.btn:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 6px 16px rgba(0,0,0,.13);}
+.btn:active:not(:disabled){transform:translateY(0);}
+.btn:disabled{opacity:.4;cursor:not-allowed;}
+
+/* ===== 进度条 ===== */
+.progress{
+  max-width:720px;margin:14px auto 0;height:6px;background:#f0f0f0;
+  border-radius:99px;overflow:hidden;display:none;
+}
+.progress.show{display:block;}
+.progress .bar{height:100%;width:0;border-radius:99px;
+  background:linear-gradient(90deg,var(--purple),var(--pink));transition:width .18s;}
+.count{text-align:center;font-size:12px;color:#aaa;margin-top:10px;}
+
+/* ===== 卡片网格 ===== */
+.grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(186px,1fr));
+  gap:14px;
+  margin-top:18px;
+}
+.card{
+  border:1px solid var(--line);
+  border-radius:14px;
+  overflow:hidden;
+  background:#fff;
+  display:flex;
+  flex-direction:column;
+  transition:box-shadow .2s, transform .2s;
+}
+.card:hover{box-shadow:0 8px 22px rgba(0,0,0,.08);}
+.card.working{opacity:.55;pointer-events:none;}
+.card.error{border-color:#ffd0d0;background:#fffafa;}
+.thumb{
+  position:relative;
+  aspect-ratio:1/1;
+  background:#f7f7f7;
+  display:flex;align-items:center;justify-content:center;
+  overflow:hidden;
+}
+.thumb img{max-width:100%;max-height:100%;object-fit:contain;display:block;}
+.badge{
+  position:absolute;top:8px;left:8px;font-size:11px;line-height:1;
+  padding:4px 8px;border-radius:999px;background:rgba(0,0,0,.55);color:#fff;
+}
+.badge.enc{background:var(--purple);}
+.badge.dec{background:var(--pink);}
+.card-body{padding:9px 11px 4px;}
+.card-name{font-size:12px;color:#444;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.card-info{font-size:11px;color:#b3b3b3;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.card-actions{display:flex;gap:6px;padding:8px 10px 10px;}
+.mini{
+  flex:1;height:28px;border:0;border-radius:8px;font-size:12px;cursor:pointer;
+  background:#f2f2f2;color:#555;transition:background .15s;font-family:inherit;
+}
+.mini:hover{background:#e7e7e7;}
+.mini.dl{background:#eef4ff;color:#2b6fd4;}
+.mini.dl:hover{background:#dfeaff;}
+.mini.rm{background:#fff0f4;color:#d02c5c;}
+.mini.rm:hover{background:#ffe2ea;}
+
+/* ===== 日志 ===== */
+.log{max-width:820px;margin:18px auto 0;font-size:12px;color:#a6a6a6;line-height:1.9;text-align:center;}
+.log div{padding:1px 0;}
+
+footer{margin-top:36px;font-size:12px;color:#c3c3c3;line-height:1.9;text-align:center;}
+footer a{color:#b0b0b0;text-decoration:none;}
+footer a:hover{color:#888;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>🍅 小番茄图片批量混淆</h1>
+    <p class="sub">基于广义 Hilbert 空间填充曲线的图片混淆算法，保持像素空间相关性，混淆图被压缩后仍能保持色彩。批量结果统一输出为 JPEG（质量 1）。仅供技术交流使用。</p>
+  </header>
+
+  <div class="drop-zone" id="dropZone">
+    <svg width="38" height="38" viewBox="0 0 24 24" fill="none" stroke="#b0b0b0" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+      <circle cx="8.5" cy="8.5" r="1.5"/>
+      <polyline points="21,15 16,10 5,21"/>
+    </svg>
+    <div class="dz-title">将图片或压缩包拖放到此处（可多选）</div>
+    <div class="dz-action">或 <strong>点击选择文件</strong> · 支持 zip / rar / 7z</div>
+    <div class="dz-hint">也可直接 Ctrl+V 粘贴剪贴板中的图片</div>
+    <input type="file" id="fileInput" multiple accept="image/*,.zip,.rar,.7z" style="display:none">
+  </div>
+
+  <div class="toolbar">
+    <button class="btn" id="btnEnc" style="background:#4f1787">批量混淆</button>
+    <button class="btn" id="btnDec" style="background:#eb3678">批量解混淆</button>
+    <button class="btn" id="btnRestore" style="background:#fb773c">还原全部</button>
+    <button class="btn" id="btnZip" style="background:#3c8bfb">打包 ZIP 下载</button>
+    <button class="btn" id="btnAll" style="background:#12a5a0">逐个下载</button>
+    <button class="btn" id="btnClear" style="background:#9ca3af">清空列表</button>
+  </div>
+
+  <div class="progress" id="progress"><div class="bar" id="bar"></div></div>
+  <div class="count" id="count"></div>
+
+  <div class="grid" id="grid"></div>
+
+  <div class="log" id="log"></div>
+
+  <footer>
+    <p style="margin:0;">算法基于 <a href="https://github.com/jiarandiana0307/PicEncrypt" target="_blank">jiarandiana0307/PicEncrypt</a> · 参考自 <a href="https://singularpoint.cn/hideImg1.html" target="_blank">singularpoint.cn/hideImg1.html</a></p>
+    <p style="margin:0;">本实现为独立编写的 Web 批量版本 · ZIP 读写由浏览器原生 API 完成</p>
+  </footer>
+</div>
+
+<script>
+(function(){
+'use strict';
+
+/* ============================================================
+   一、基础工具
+   ============================================================ */
+const $ = s => document.querySelector(s);
+const tick = () => new Promise(r => setTimeout(r, 0));
+
+function formatSize(n){
+  if (n < 1024) return n + ' B';
+  if (n < 1048576) return (n / 1024).toFixed(1) + ' KB';
+  return (n / 1048576).toFixed(2) + ' MB';
+}
+function sanitizeName(n){
+  const base = String(n).split(/[\\/]/).pop() || 'image';
+  return base.replace(/[:*?"<>|]/g, '_');
+}
+function stamp(){
+  const d = new Date(), p = x => String(x).padStart(2, '0');
+  return `${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+}
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function downloadBlob(blob, filename){
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 15000);
+}
+function canvasToBlob(canvas, type, quality){
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(b => b ? resolve(b) : reject(new Error('导出图片失败')), type, quality);
+  });
+}
+async function blobToBitmap(blob){
+  if (window.createImageBitmap){
+    try { return await createImageBitmap(blob); } catch(e){ /* fallthrough */ }
+  }
+  const url = URL.createObjectURL(blob);
+  const im = await new Promise((res, rej) => {
+    const i = new Image();
+    i.onload = () => res(i);
+    i.onerror = () => rej(new Error('图片解码失败'));
+    i.src = url;
+  });
+  return { width: im.naturalWidth, height: im.naturalHeight, _img: im };
+}
+
+/* ============================================================
+   二、空间填充曲线（广义 Hilbert 曲线）
+   —— 与原始实现完全一致的坐标顺序，只是改用 Int32Array 存储
+   ============================================================ */
+function gilbert2d(width, height){
+  const total = width * height;
+  const coords = new Int32Array(total * 2);
+  let idx = 0;
+
+  function gen(x, y, ax, ay, bx, by){
+    const w = Math.abs(ax + ay);
+    const h = Math.abs(bx + by);
+
+    const dax = Math.sign(ax), day = Math.sign(ay);
+    const dbx = Math.sign(bx), dby = Math.sign(by);
+
+    if (h === 1){
+      for (let i = 0; i < w; i++){ coords[idx++] = x; coords[idx++] = y; x += dax; y += day; }
+      return;
+    }
+    if (w === 1){
+      for (let i = 0; i < h; i++){ coords[idx++] = x; coords[idx++] = y; x += dbx; y += dby; }
+      return;
+    }
+
+    let ax2 = Math.floor(ax / 2), ay2 = Math.floor(ay / 2);
+    let bx2 = Math.floor(bx / 2), by2 = Math.floor(by / 2);
+
+    const w2 = Math.abs(ax2 + ay2);
+    const h2 = Math.abs(bx2 + by2);
+
+    if (2 * w > 3 * h){
+      if ((w2 % 2) && (w > 2)){ ax2 += dax; ay2 += day; }
+      gen(x, y, ax2, ay2, bx, by);
+      gen(x + ax2, y + ay2, ax - ax2, ay - ay2, bx, by);
+    } else {
+      if ((h2 % 2) && (h > 2)){ bx2 += dbx; by2 += dby; }
+      gen(x, y, bx2, by2, ax2, ay2);
+      gen(x + bx2, y + by2, ax, ay, bx - bx2, by - by2);
+      gen(x + (ax - dax) + (bx2 - dbx), y + (ay - day) + (by2 - dby),
+          -bx2, -by2, -(ax - ax2), -(ay - ay2));
+    }
+  }
+
+  if (width >= height) gen(0, 0, width, 0, 0, height);
+  else gen(0, 0, 0, height, width, 0);
+
+  if (idx !== total * 2) throw new Error('该尺寸暂不受支持');
+  return coords;
+}
+
+/* ============================================================
+   三、混淆 / 解混淆核心
+   ============================================================ */
+function scrambleData(imgData, width, height, inverse){
+  const total = width * height;
+  const curve = gilbert2d(width, height);
+  const offset = Math.round((Math.sqrt(5) - 1) / 2 * total);
+
+  const src = imgData.data;
+  const out = new ImageData(width, height);
+  const dst = out.data;
+
+  for (let i = 0; i < total; i++){
+    const oi = i * 2;
+    const oldP = 4 * (curve[oi] + curve[oi + 1] * width);
+    const ni = ((i + offset) % total) * 2;
+    const newP = 4 * (curve[ni] + curve[ni + 1] * width);
+
+    const from = inverse ? newP : oldP;
+    const to   = inverse ? oldP : newP;
+
+    dst[to]     = src[from];
+    dst[to + 1] = src[from + 1];
+    dst[to + 2] = src[from + 2];
+    dst[to + 3] = src[from + 3];
+  }
+  return out;
+}
+
+async function processBlob(blob, mode){
+  const bmp = await blobToBitmap(blob);
+  const w = bmp.width, h = bmp.height;
+  if (!w || !h) throw new Error('无法读取图片尺寸');
+  if (w * h > 4e7) throw new Error('图片过大（超过 4000 万像素）');
+
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(bmp._img || bmp, 0, 0);
+  if (bmp.close) bmp.close();
+
+  const data = ctx.getImageData(0, 0, w, h);
+  const outData = scrambleData(data, w, h, mode === 'decrypt');
+  ctx.putImageData(outData, 0, 0);
+
+  const out = await canvasToBlob(canvas, 'image/jpeg', 1);
+  return { blob: out, width: w, height: h };
+}
+
+function makeOutName(name, mode){
+  const base = String(name).replace(/\.[^./\\]+$/, '') || 'image';
+  return `${base}_${mode === 'encrypt' ? 'enc' : 'dec'}.jpg`;
+}
+
+/* ============================================================
+   四、ZIP 读取（原生 DecompressionStream，无需外部库）
+   ============================================================ */
+async function inflateRaw(u8){
+  const ds = new DecompressionStream('deflate-raw');
+  const stream = new Blob([u8]).stream().pipeThrough(ds);
+  const ab = await new Response(stream).arrayBuffer();
+  return new Uint8Array(ab);
+}
+
+function decodeZipName(bytes, isUtf8){
+  try {
+    if (isUtf8) return new TextDecoder('utf-8').decode(bytes);
+    // 未声明 UTF-8 时，优先按 GBK 解读（中文压缩包常见）
+    try { return new TextDecoder('gbk').decode(bytes); }
+    catch(e){ return new TextDecoder('utf-8').decode(bytes); }
+  } catch(e){
+    return new TextDecoder('utf-8').decode(bytes);
+  }
+}
+
+function readZipEntries(buf){
+  const len = buf.length;
+  if (len < 22) return null;
+  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+
+  // 定位 EOCD
+  let eocd = -1;
+  const minPos = Math.max(0, len - 22 - 65535);
+  for (let i = len - 22; i >= minPos; i--){
+    if (buf[i] === 0x50 && buf[i+1] === 0x4b && buf[i+2] === 0x05 && buf[i+3] === 0x06){
+      eocd = i; break;
+    }
+  }
+  if (eocd < 0) return null;
+
+  const count   = dv.getUint16(eocd + 10, true);
+  const cdSize  = dv.getUint32(eocd + 12, true);
+  const cdOff   = dv.getUint32(eocd + 16, true);
+  if (cdOff === 0xffffffff || cdSize === 0xffffffff) return null; // Zip64 不支持
+
+  const entries = [];
+  let p = cdOff;
+  for (let i = 0; i < count; i++){
+    if (p + 46 > len) break;
+    if (dv.getUint32(p, true) !== 0x02014b50) break;
+
+    const flags      = dv.getUint16(p + 8, true);
+    const method     = dv.getUint16(p + 10, true);
+    const compSize   = dv.getUint32(p + 20, true);
+    const uncompSize = dv.getUint32(p + 24, true);
+    const nameLen    = dv.getUint16(p + 28, true);
+    const extraLen   = dv.getUint16(p + 30, true);
+    const cmtLen     = dv.getUint16(p + 32, true);
+    const localOff   = dv.getUint32(p + 42, true);
+
+    const nameBytes = buf.subarray(p + 46, p + 46 + nameLen);
+    const name = decodeZipName(nameBytes, !!(flags & 0x800));
+
+    // 解析本地文件头，定位数据起点
+    let dataStart = -1;
+    if (localOff + 30 <= len && dv.getUint32(localOff, true) === 0x04034b50){
+      const lNameLen  = dv.getUint16(localOff + 26, true);
+      const lExtraLen = dv.getUint16(localOff + 28, true);
+      dataStart = localOff + 30 + lNameLen + lExtraLen;
+    }
+
+    entries.push({ name, method, compSize, uncompSize, dataStart });
+    p += 46 + nameLen + extraLen + cmtLen;
+  }
+  return entries;
+}
+
+const IMG_EXT = /\.(jpe?g|png|gif|bmp|webp|avif|tiff?|ico)$/i;
+function looksLikeImage(blob, name){
+  if (blob && blob.type && blob.type.indexOf('image/') === 0) return true;
+  return IMG_EXT.test(name || '');
+}
+
+async function extractZip(file){
+  const buf = new Uint8Array(await file.arrayBuffer());
+  const entries = readZipEntries(buf);
+  if (!entries){ log('无法解析 ZIP（可能为 Zip64 或已加密）：' + file.name); return; }
+
+  if (typeof DecompressionStream === 'undefined'){
+    log('当前浏览器不支持 DecompressionStream，无法解压 deflate 压缩的 ZIP，请升级浏览器。');
+    return;
+  }
+
+  let n = 0;
+  for (const e of entries){
+    if (!e.dataStart || e.dataStart < 0) continue;
+    if (e.name.endsWith('/')) continue;
+    if (e.name.indexOf('__MACOSX') === 0) continue;
+    if (e.name.split('/').pop().charAt(0) === '.') continue;
+    if (!IMG_EXT.test(e.name)) continue;
+
+    const comp = buf.subarray(e.dataStart, e.dataStart + e.compSize);
+    let raw;
+    if (e.method === 0){
+      raw = comp;
+    } else if (e.method === 8){
+      try { raw = await inflateRaw(comp); }
+      catch(err){ log('解压失败（' + e.name + '）：' + err.message); continue; }
+    } else {
+      log('跳过不支持的压缩方式(' + e.method + ')：' + e.name);
+      continue;
+    }
+
+    const blob = new Blob([raw]);
+    const baseName = e.name.split('/').pop();
+    if (await addImageBlob(blob, baseName)) n++;
+  }
+  log(`📦 ${file.name}：导入 ${n} 张图片`);
+}
+
+/* ============================================================
+   五、RAR / 7Z（按需从 CDN 加载 libarchive.js 的 WASM 解压器）
+   ============================================================ */
+let libarchivePromise = null;
+function getLibarchive(){
+  if (!libarchivePromise){
+    libarchivePromise = (async () => {
+      const base = 'https://cdn.jsdelivr.net/npm/libarchive.js@2.0.2/dist/';
+      const mod = await import(/* webpackIgnore: true */ base + 'libarchive.js');
+      const Archive = mod.Archive || (mod.default && mod.default.Archive) || mod.default;
+      if (!Archive || typeof Archive.open !== 'function') throw new Error('模块结构异常');
+      Archive.init({ workerUrl: base + 'worker.js' });
+      return Archive;
+    })();
+    libarchivePromise.catch(() => { libarchivePromise = null; });
+  }
+  return libarchivePromise;
+}
+
+async function extractWithLibarchive(file){
+  let Archive;
+  try {
+    Archive = await getLibarchive();
+  } catch (err){
+    log('⚠ RAR / 7z 需要联网加载解压组件，加载失败：' + err.message);
+    return;
+  }
+
+  try {
+    const archive = await Archive.open(file);
+    const tree = await archive.extractFiles();
+    const found = [];
+    (function walk(node){
+      if (!node || typeof node !== 'object') return;
+      for (const key in node){
+        const v = node[key];
+        if (v instanceof Blob) found.push({ name: key, blob: v });
+        else if (v && typeof v === 'object') walk(v);
+      }
+    })(tree);
+
+    let n = 0;
+    for (const f of found){
+      if (!looksLikeImage(f.blob, f.name)) continue;
+      if (await addImageBlob(f.blob, f.name)) n++;
+    }
+    log(`📦 ${file.name}：导入 ${n} 张图片`);
+  } catch (err){
+    log('解压失败：' + file.name + ' —— ' + err.message);
+  }
+}
+
+/* ============================================================
+   六、ZIP 写入（store 方式，无外部依赖）
+   ============================================================ */
+const CRC_TABLE = (function(){
+  const t = new Uint32Array(256);
+  for (let i = 0; i < 256; i++){
+    let c = i;
+    for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+    t[i] = c >>> 0;
+  }
+  return t;
+})();
+
+function crc32(u8){
+  let c = 0xFFFFFFFF;
+  for (let i = 0; i < u8.length; i++) c = (c >>> 8) ^ CRC_TABLE[(c ^ u8[i]) & 0xFF];
+  return (c ^ 0xFFFFFFFF) >>> 0;
+}
+
+async function buildZip(files){
+  const enc = new TextEncoder();
+  const chunks = [];
+  const central = [];
+  let offset = 0;
+
+  for (const f of files){
+    const data = new Uint8Array(await f.blob.arrayBuffer());
+    const nameBytes = enc.encode(f.name);
+    const crc = crc32(data);
+
+    // —— 本地文件头 ——
+    const local = new Uint8Array(30 + nameBytes.length);
+    const ldv = new DataView(local.buffer);
+    ldv.setUint32(0, 0x04034b50, true);
+    ldv.setUint16(4, 20, true);        // version needed
+    ldv.setUint16(6, 0x0800, true);    // UTF-8 文件名
+    ldv.setUint16(8, 0, true);         // store
+    ldv.setUint16(10, 0, true);        // time
+    ldv.setUint16(12, 0x21, true);     // date 1980-01-01
+    ldv.setUint32(14, crc, true);
+    ldv.setUint32(18, data.length, true);
+    ldv.setUint32(22, data.length, true);
+    ldv.setUint16(26, nameBytes.length, true);
+    ldv.setUint16(28, 0, true);
+    local.set(nameBytes, 30);
+    chunks.push(local, data);
+
+    // —— 中央目录项 ——
+    const cd = new Uint8Array(46 + nameBytes.length);
+    const cdv = new DataView(cd.buffer);
+    cdv.setUint32(0, 0x02014b50, true);
+    cdv.setUint16(4, 20, true);
+    cdv.setUint16(6, 20, true);
+    cdv.setUint16(8, 0x0800, true);
+    cdv.setUint16(10, 0, true);
+    cdv.setUint16(12, 0, true);
+    cdv.setUint16(14, 0x21, true);
+    cdv.setUint32(16, crc, true);
+    cdv.setUint32(20, data.length, true);
+    cdv.setUint32(24, data.length, true);
+    cdv.setUint16(28, nameBytes.length, true);
+    cdv.setUint16(30, 0, true);
+    cdv.setUint16(32, 0, true);
+    cdv.setUint16(34, 0, true);
+    cdv.setUint16(36, 0, true);
+    cdv.setUint32(38, 0, true);
+    cdv.setUint32(42, offset, true);
+    cd.set(nameBytes, 46);
+    central.push(cd);
+
+    offset += local.length + data.length;
+  }
+
+  const cdSize = central.reduce((s, c) => s + c.length, 0);
+
+  const eocd = new Uint8Array(22);
+  const edv = new DataView(eocd.buffer);
+  edv.setUint32(0, 0x06054b50, true);
+  edv.setUint16(8, files.length, true);
+  edv.setUint16(10, files.length, true);
+  edv.setUint32(12, cdSize, true);
+  edv.setUint32(16, offset, true);
+
+  return new Blob([...chunks, ...central, eocd], { type: 'application/zip' });
+}
+
+/* ============================================================
+   七、应用状态与界面
+   ============================================================ */
+const els = {
+  dropZone: $('#dropZone'),
+  fileInput: $('#fileInput'),
+  grid: $('#grid'),
+  log: $('#log'),
+  progress: $('#progress'),
+  bar: $('#bar'),
+  count: $('#count'),
+  btnEnc: $('#btnEnc'),
+  btnDec: $('#btnDec'),
+  btnRestore: $('#btnRestore'),
+  btnZip: $('#btnZip'),
+  btnAll: $('#btnAll'),
+  btnClear: $('#btnClear')
+};
+
+const state = { items: [], seq: 0, busy: false };
+const STATUS_TEXT = {
+  ready: '待处理',
+  working: '处理中…',
+  encrypted: '已混淆',
+  decrypted: '已解混淆',
+  error: '出错'
+};
+
+const logs = [];
+function log(msg){
+  logs.push(msg);
+  if (logs.length > 6) logs.shift();
+  els.log.innerHTML = logs.map(m => '<div>' + escapeHtml(m) + '</div>').join('');
+}
+
+function updateCount(){
+  els.count.textContent = state.items.length
+    ? `共 ${state.items.length} 项 · 已混淆 ${state.items.filter(i=>i.status==='encrypted').length} · 已解混淆 ${state.items.filter(i=>i.status==='decrypted').length}`
+    : '';
+}
+
+function setBusy(b){
+  state.busy = b;
+  [els.btnEnc, els.btnDec, els.btnRestore, els.btnZip, els.btnAll, els.btnClear]
+    .forEach(x => { x.disabled = b; });
+}
+
+function showProgress(pct){
+  if (pct == null){
+    els.progress.classList.remove('show');
+    els.bar.style.width = '0%';
+  } else {
+    els.progress.classList.add('show');
+    els.bar.style.width = Math.max(0, Math.min(100, pct)) + '%';
+  }
+}
+
+/* ---------- 卡片 ---------- */
+function createCard(item){
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.innerHTML =
+    '<div class="thumb"><img alt=""><span class="badge" style="display:none"></span></div>' +
+    '<div class="card-body">' +
+      '<div class="card-name"></div>' +
+      '<div class="card-info"></div>' +
+    '</div>' +
+    '<div class="card-actions">' +
+      '<button class="mini dl">下载</button>' +
+      '<button class="mini rm">移除</button>' +
+    '</div>';
+
+  const refs = {
+    card,
+    imgEl: card.querySelector('img'),
+    badge: card.querySelector('.badge'),
+    nameEl: card.querySelector('.card-name'),
+    infoEl: card.querySelector('.card-info')
+  };
+  item.el = refs;
+
+  card.querySelector('.rm').addEventListener('click', () => removeItem(item));
+  card.querySelector('.dl').addEventListener('click', () => {
+    downloadBlob(item.workBlob, sanitizeName(item.outName || item.name));
+  });
+
+  return card;
+}
+
+function updateCard(item){
+  const r = item.el;
+  if (!r) return;
+
+  if (r.imgEl.dataset.url !== item.workUrl){
+    r.imgEl.dataset.url = item.workUrl;
+    r.imgEl.src = item.workUrl;
+  }
+  r.nameEl.textContent = item.name;
+  r.nameEl.title = item.name;
+
+  const dim = item.width ? item.width + '×' + item.height : '';
+  const info = [dim, formatSize(item.workBlob.size), STATUS_TEXT[item.status] || '']
+    .filter(Boolean).join(' · ');
+  r.infoEl.textContent = item.error ? item.error : info;
+  r.infoEl.title = r.infoEl.textContent;
+
+  r.card.classList.toggle('working', item.status === 'working');
+  r.card.classList.toggle('error', item.status === 'error');
+
+  if (item.status === 'encrypted'){
+    r.badge.style.display = '';
+    r.badge.textContent = '混淆';
+    r.badge.className = 'badge enc';
+  } else if (item.status === 'decrypted'){
+    r.badge.style.display = '';
+    r.badge.textContent = '解混淆';
+    r.badge.className = 'badge dec';
+  } else {
+    r.badge.style.display = 'none';
+  }
+  updateCount();
+}
+
+/* ---------- 添加图片 ---------- */
+async function addImageBlob(blob, name){
+  if (!blob || blob.size === 0) return false;
+
+  const item = {
+    id: ++state.seq,
+    name: sanitizeName(name || ('image_' + state.seq + '.jpg')),
+    originalBlob: blob,
+    workBlob: blob,
+    workUrl: URL.createObjectURL(blob),
+    width: 0,
+    height: 0,
+    status: 'ready',
+    outName: null,
+    error: null,
+    el: null
+  };
+
+  state.items.push(item);
+  els.grid.appendChild(createCard(item));
+  updateCard(item);
+
+  // 异步读取尺寸
+  try {
+    const bmp = await blobToBitmap(blob);
+    item.width = bmp.width;
+    item.height = bmp.height;
+    if (bmp.close) bmp.close();
+    updateCard(item);
+  } catch (e){
+    item.status = 'error';
+    item.error = '无法解码';
+    updateCard(item);
+  }
+  return true;
+}
+
+function removeItem(item){
+  const i = state.items.indexOf(item);
+  if (i < 0) return;
+  state.items.splice(i, 1);
+  URL.revokeObjectURL(item.workUrl);
+  if (item.el && item.el.card.parentNode) item.el.card.parentNode.removeChild(item.el.card);
+  updateCount();
+}
+
+/* ---------- 文件导入入口 ---------- */
+async function handleFiles(fileList){
+  const files = Array.from(fileList || []);
+  if (!files.length) return;
+
+  for (const file of files){
+    const name = file.name || '';
+    const ext = (name.split('.').pop() || '').toLowerCase();
+
+    if (file.type.indexOf('image/') === 0 || (!ext.match(/^(zip|rar|7z)$/) && IMG_EXT.test(name))){
+      const ok = await addImageBlob(file, name);
+      if (ok) log('🖼 已导入：' + name);
+    } else if (ext === 'zip' || file.type === 'application/zip' || file.type === 'application/x-zip-compressed'){
+      await extractZip(file);
+    } else if (ext === 'rar' || ext === '7z'){
+      await extractWithLibarchive(file);
+    } else {
+      log('跳过不支持的文件：' + name);
+    }
+    await tick();
+  }
+}
+
+/* ---------- 批量处理 ---------- */
+async function runBatch(mode){
+  if (state.busy) return;
+  const targets = state.items.filter(it => it.status !== 'working');
+  if (!targets.length){ log('列表为空，请先导入图片。'); return; }
+
+  setBusy(true);
+  showProgress(0);
+
+  let done = 0;
+  for (const item of targets){
+    item.status = 'working';
+    item.error = null;
+    updateCard(item);
+    await tick();
+
+    try {
+      const res = await processBlob(item.workBlob, mode);
+      if (item.workUrl) URL.revokeObjectURL(item.workUrl);
+      item.workBlob = res.blob;
+      item.workUrl = URL.createObjectURL(res.blob);
+      item.width = res.width;
+      item.height = res.height;
+      item.status = mode === 'encrypt' ? 'encrypted' : 'decrypted';
+      item.outName = makeOutName(item.name, mode);
+    } catch (err){
+      item.status = 'error';
+      item.error = err.message || '处理失败';
+      log('❌ ' + item.name + '：' + item.error);
+    }
+
+    done++;
+    updateCard(item);
+    showProgress(done / targets.length * 100);
+    await tick();
+  }
+
+  log(mode === 'encrypt'
+      ? `✅ 批量混淆完成，共处理 ${targets.length} 张`
+      : `✅ 批量解混淆完成，共处理 ${targets.length} 张`);
+
+  showProgress(100);
+  setTimeout(() => showProgress(null), 600);
+  setBusy(false);
+}
+
+/* ---------- 还原 ---------- */
+function restoreAll(){
+  if (state.busy) return;
+  let n = 0;
+  for (const item of state.items){
+    URL.revokeObjectURL(item.workUrl);
+    item.workBlob = item.originalBlob;
+    item.workUrl = URL.createObjectURL(item.originalBlob);
+    item.status = 'ready';
+    item.outName = null;
+    item.error = null;
+    updateCard(item);
+    n++;
+  }
+  if (n) log(`↩️ 已还原 ${n} 张为导入时的原图`);
+}
+
+/* ---------- 下载 ---------- */
+function uniqueName(name, used){
+  let final = name, k = 1;
+  while (used.has(final)){
+    const dot = name.lastIndexOf('.');
+    final = dot > 0
+      ? name.slice(0, dot) + '_' + (k++) + name.slice(dot)
+      : name + '_' + (k++);
+  }
+  used.add(final);
+  return final;
+}
+
+async function downloadAllZip(){
+  if (state.busy) return;
+  const list = state.items.slice();
+  if (!list.length){ log('列表为空，请先导入图片。'); return; }
+
+  setBusy(true);
+  showProgress(0);
+
+  try {
+    const used = new Set();
+    const files = [];
+    for (let i = 0; i < list.length; i++){
+      const it = list[i];
+      const name = sanitizeName(it.outName || it.name);
+      files.push({ name: uniqueName(name, used), blob: it.workBlob });
+      showProgress((i + 1) / list.length * 60);
+      if (i % 5 === 0) await tick();
+    }
+
+    log('📦 正在打包 ' + files.length + ' 个文件…');
+    const zipBlob = await buildZip(files);
+    showProgress(100);
+    downloadBlob(zipBlob, 'pic-scramble-' + stamp() + '.zip');
+    log('✅ 打包完成：' + formatSize(zipBlob.size));
+  } catch (err){
+    log('❌ 打包失败：' + err.message);
+  }
+
+  setTimeout(() => showProgress(null), 700);
+  setBusy(false);
+}
+
+async function downloadAllIndividually(){
+  if (state.busy) return;
+  const list = state.items.slice();
+  if (!list.length){ log('列表为空，请先导入图片。'); return; }
+
+  setBusy(true);
+  const used = new Set();
+  for (const it of list){
+    const name = uniqueName(sanitizeName(it.outName || it.name), used);
+    downloadBlob(it.workBlob, name);
+    await new Promise(r => setTimeout(r, 220)); // 避免浏览器拦截连续下载
+  }
+  log('⬇️ 已触发 ' + list.length + ' 个文件的下载');
+  setBusy(false);
+}
+
+/* ============================================================
+   八、事件绑定
+   ============================================================ */
+els.dropZone.addEventListener('click', () => els.fileInput.click());
+
+els.fileInput.addEventListener('change', async () => {
+  const files = els.fileInput.files;
+  els.fileInput.value = '';
+  await handleFiles(files);
+});
+
+// 拖拽（整页可接收）
+let dragDepth = 0;
+document.addEventListener('dragenter', e => {
+  e.preventDefault();
+  dragDepth++;
+  els.dropZone.classList.add('dragover');
+});
+document.addEventListener('dragover', e => { e.preventDefault(); });
+document.addEventListener('dragleave', e => {
+  e.preventDefault();
+  dragDepth = Math.max(0, dragDepth - 1);
+  if (dragDepth === 0) els.dropZone.classList.remove('dragover');
+});
+document.addEventListener('drop', async e => {
+  e.preventDefault();
+  dragDepth = 0;
+  els.dropZone.classList.remove('dragover');
+  if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length){
+    await handleFiles(e.dataTransfer.files);
+  }
+});
+
+// 粘贴
+document.addEventListener('paste', async e => {
+  const items = e.clipboardData && e.clipboardData.items;
+  if (!items) return;
+  const files = [];
+  for (const item of items){
+    if (item.type.indexOf('image/') === 0){
+      const f = item.getAsFile();
+      if (f) files.push(f);
+    }
+  }
+  if (files.length){
+    e.preventDefault();
+    await handleFiles(files);
+  }
+});
+
+els.btnEnc.addEventListener('click', () => runBatch('encrypt'));
+els.btnDec.addEventListener('click', () => runBatch('decrypt'));
+els.btnRestore.addEventListener('click', restoreAll);
+els.btnZip.addEventListener('click', downloadAllZip);
+els.btnAll.addEventListener('click', downloadAllIndividually);
+els.btnClear.addEventListener('click', () => {
+  if (state.busy) return;
+  if (state.items.length && !confirm('确定清空列表中的全部图片吗？')) return;
+  state.items.slice().forEach(removeItem);
+  log('🗑 列表已清空');
+});
+
+updateCount();
+log('准备就绪：导入图片或 zip / rar / 7z 压缩包即可开始。');
+})();
+</script>
+</body>
+</html>
